@@ -5,14 +5,16 @@
 #include "access_ctl_contact.h"
 #include "AccessExitBtn.h"
 #include "access_ctl_buzzer.h"
+#include "AccessCtlOnboardStorage.h"
 #include "FingerprintSerial.h"
 #include "Fingerprint.h"
 
 //#define DEBUG_MAIN
-#define DEBUG_KEYPAD
+//#define DEBUG_KEYPAD
 //#define DEBUG_FINGERPRINT
 //#define DEBUG_CONTACT
 //#define DEBUG_EXIT
+//#define DEBUG_DISPLAY
 
 AccessCtlDisplay access_display;
 AccessCtlKeypad access_keypad;
@@ -20,6 +22,7 @@ AccessCtlLock access_lock;
 AccessCtlContactSensor contact_sensor;
 AccessCtlExitBtn exitTrigger;
 AccessCtlBuzzer access_buzzer;
+AccessCtlOnboardStorage storage;
 
 FingerprintSerial fingerprintSerial(8, 9);
 Fingerprint fingerprintSensor = Fingerprint(&fingerprintSerial);
@@ -31,9 +34,10 @@ volatile bool enrollFinger = false;
 // helps in allocating new IDs for new templates
 uint8_t FINGERPRINT_COUNT = 0;
 uint8_t currentFingerprintIndex = 0;
-char *currentPIN = "1234";
+char currentPIN[5];
 
 char pinInputBuffer[5];
+char pinChangeBuffer[5];
 
 unsigned long longPressMillis = millis();
 unsigned long doorTimeoutMillis = millis();
@@ -42,6 +46,9 @@ unsigned long getFingerprintDebounceMillis = millis();
 void setup()
 {
   Serial.begin(57600);
+  
+  memset(currentPIN, '\0', sizeof(currentPIN));
+  storage.getPIN(currentPIN); // retrieve pin into currentPIN variable
   
   // Set baud rate for the fingerprint sensor serial port
   fingerprintSensor.begin(57600);
@@ -297,8 +304,8 @@ void keypadEventCallback(char pressed, KeyEdge_t edge)
 {
   #ifdef DEBUG_KEYPAD
     Serial.print(pressed);
-    Serial.print(" pressed: ");
-    Serial.println(edge);
+    if (edge == FALLING_EDGE) Serial.println(" pressed");
+    if (edge == RISING_EDGE) Serial.println(" released");
   #endif
   
   switch (access_keypad.getCurrentKeypadState())
@@ -349,28 +356,94 @@ void keypadEventCallback(char pressed, KeyEdge_t edge)
           // When 4 characters are input, compare against current PIN
           if (access_display.getNumCharsInput() == FOUR_CHARS)
           {
-            // Either change to menu or display error screen
-            if (strcmp(pinInputBuffer, currentPIN) == 0)
+            switch (access_display.getCurrentPinScreen())
             {
-              // correct PIN input
-              // access_display.openMainMenu();
-              access_display.setCurrentScreen(PIN_SUCCESS_SCREEN);
-              access_keypad.changeKeypadToState(NAVIGATION_STATE);
-            } else 
-            {
-              // show the error screen for a while then go back to the PIN screen
-              memset(pinInputBuffer, '\0', sizeof(pinInputBuffer));
-              access_display.resetPinChars();
-              access_display.setCurrentScreen(PIN_ERROR_SCREEN);
+              case PIN_SCREEN:
+              {
+                // Either change to menu or display error screen
+                if (strcmp(pinInputBuffer, currentPIN) == 0)
+                {
+                  // correct PIN input
+                  memset(pinInputBuffer, '\0', sizeof(pinInputBuffer));
+                  access_display.resetPinChars();
+                  access_display.setCurrentScreen(PIN_SUCCESS_SCREEN);
+                  access_keypad.changeKeypadToState(NAVIGATION_STATE);
+                } else 
+                {
+                  // show the error screen for a while then go back to the PIN screen
+                  memset(pinInputBuffer, '\0', sizeof(pinInputBuffer));
+                  access_display.resetPinChars();
+                  access_display.setCurrentScreen(PIN_ERROR_SCREEN);
+                }
+                break;
+              }
+              case CURRENT_PIN_SCREEN:
+              {
+                // Either change to new pin screen or display error screen
+                if (strcmp(pinInputBuffer, currentPIN) == 0)
+                {
+                  // correct PIN input
+                  memset(pinInputBuffer, '\0', sizeof(pinInputBuffer));
+                  access_display.resetPinChars();
+                  access_display.setCurrentPinScreen(CHANGE_PIN_1);
+                } else 
+                {
+                  // show the error screen for a while then go back to the PIN screen
+                  memset(pinInputBuffer, '\0', sizeof(pinInputBuffer));
+                  access_display.resetPinChars();
+                  access_display.setCurrentScreen(PIN_ERROR_SCREEN);
+                }
+                break;
+              }
+              case CHANGE_PIN_1:
+                memset(pinChangeBuffer, '\0', sizeof(pinChangeBuffer));
+                strcpy(pinChangeBuffer, pinInputBuffer);
+                
+                memset(pinInputBuffer, '\0', sizeof(pinInputBuffer));
+                access_display.resetPinChars();
+                access_display.setCurrentPinScreen(CHANGE_PIN_2);
+                break;
+              case CHANGE_PIN_2:
+                if (strcmp(pinInputBuffer, pinChangeBuffer) == 0)
+                {
+                  // matching PIN input
+                  strcpy(currentPIN, pinChangeBuffer);
+                  storage.savePIN(currentPIN);
+                  
+                  memset(pinInputBuffer, '\0', sizeof(pinInputBuffer));
+                  access_display.resetPinChars();
+                  access_display.setCurrentScreen(CHANGE_PIN_SUCCESS_SCREEN);
+                  access_keypad.changeKeypadToState(NAVIGATION_STATE);
+                } else 
+                {
+                  // PINs don't match
+                  // show the error screen for a while then go back to the main menu
+                  memset(pinInputBuffer, '\0', sizeof(pinInputBuffer));
+                  access_display.resetPinChars();
+                  access_display.setCurrentScreen(CHANGE_PIN_ERROR_SCREEN);
+                  access_keypad.changeKeypadToState(NAVIGATION_STATE);
+                }
+                break;
             }
           }
         }
         else if (pressed == 'A')
         {
-          access_display.setCurrentScreen(DEFAULT_SCREEN);
-          access_keypad.changeKeypadToState(DEFAULT_STATE);
-        }
+          switch (access_display.getCurrentPinScreen())
+          {
+            case PIN_SCREEN:
+              access_display.setCurrentScreen(DEFAULT_SCREEN);
+              access_keypad.changeKeypadToState(DEFAULT_STATE);
+              break;
+            case CURRENT_PIN_SCREEN:
+            case CHANGE_PIN_1:
+            case CHANGE_PIN_2:
+              access_display.openMainMenu();
+              access_keypad.changeKeypadToState(NAVIGATION_STATE);
+              break;
+          }
         
+        }
       }
       break;
     case NAVIGATION_STATE:
@@ -395,6 +468,11 @@ void keypadEventCallback(char pressed, KeyEdge_t edge)
               int8_t selectedMenuItem = access_display.getSelectedMenuItem();
               
               access_display.selectItem();
+
+              #ifdef DEBUG_DISPLAY
+                Serial.print("Current screen: "); Serial.println(access_display.getCurrentScreen());
+                Serial.print("Current PIN screen: "); Serial.println(access_display.getCurrentPinScreen());
+              #endif
               
               switch (access_display.getCurrentScreen())
               {
@@ -424,6 +502,9 @@ void keypadEventCallback(char pressed, KeyEdge_t edge)
                   }
                   break;
                 }
+                case PASS_SCREEN:
+                  access_keypad.changeKeypadToState(PIN_STATE);
+                  break;
               }
               
               break;

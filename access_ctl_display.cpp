@@ -3,6 +3,7 @@
 #include "timing_driver.h"
 
 unsigned long info_screen_timing = 0;
+uint8_t mainMenuPage = 0;
 
 void AccessCtlDisplay::displayLoop(void)
 {
@@ -10,6 +11,14 @@ void AccessCtlDisplay::displayLoop(void)
   
   do{
     updateAccessDisplay();
+  } while (u8g->nextPage());
+}
+
+void AccessCtlDisplay::clearScreen(void)
+{
+  u8g->firstPage();
+  
+  do{
   } while (u8g->nextPage());
 }
 
@@ -21,7 +30,8 @@ Screen_t AccessCtlDisplay::getCurrentScreen(void)
 void AccessCtlDisplay::setCurrentScreen(Screen_t screen, MenuMax_t max)
 {
   currentScreen = screen;
-  if ((screen == ERROR_SCREEN) || (screen == SUCCESS_SCREEN) || (screen == PIN_ERROR_SCREEN))
+  if ((screen == ERROR_SCREEN) || (screen == SUCCESS_SCREEN) || (screen == PIN_ERROR_SCREEN)
+      || (screen == CHANGE_PIN_SUCCESS_SCREEN) || (screen == CHANGE_PIN_ERROR_SCREEN))
   {
     info_screen_timing = get_timing_millis();
   }
@@ -43,6 +53,8 @@ void AccessCtlDisplay::updateAccessDisplay(void)
     case PIN_ERROR_SCREEN:
     case PIN_SUCCESS_SCREEN:
     case SUCCESS_SCREEN:
+    case CHANGE_PIN_SUCCESS_SCREEN:
+    case CHANGE_PIN_ERROR_SCREEN:
       drawStatusScreen();
       break;
     case PASS_SCREEN:
@@ -71,8 +83,8 @@ void AccessCtlDisplay::drawAddFingerScreen(void)
   switch (addFingerCurrentStep)
   {
   case INITIAL_CAPTURE_PROMPT:
-    display_text[0] = "Place finger";
-    display_text[1] = "on scanner";
+    display_text[0] = "Scan finger";
+    display_text[1] = "to register";
     break;
   case CAPTURE_SUCCESS:
     display_text[0] = "Fingerprint";
@@ -161,9 +173,19 @@ void AccessCtlDisplay::drawSelectionScreen(void)
   {
     case MENU_SCREEN:
       title = "MENU";
-      options[0] = "Back";
-      options[1] = "Fingerprint DB";
-      options[2] = "Door Ctl";
+      if (mainMenuPage == 0)
+      {
+        options[0] = "Back";
+        options[1] = "Fingerprint DB";
+        options[2] = "Door Ctl";
+      }
+      else if (mainMenuPage == 1)
+      {
+        options[0] = "Fingerprint DB";
+        options[1] = "Door Ctl";
+        options[2] = "Change PIN";
+      }
+      
       numOptions = 3;
       break;
     case FINGERPRINT_DB_SCREEN:
@@ -223,16 +245,33 @@ int8_t AccessCtlDisplay::getSelectedMenuItem(void)
 
 void AccessCtlDisplay::scrollDown(void)
 {
-  SELECTED_MENU_ITEM = ((SELECTED_MENU_ITEM + 1) < currentMenuMax) ? SELECTED_MENU_ITEM + 1 : SELECTED_MENU_ITEM;
+  if ((currentScreen == MENU_SCREEN) && (mainMenuPage == 0) && (SELECTED_MENU_ITEM == (MAIN_MENU_MAX - 1)))
+  {
+    // We're in the main menu screen, on the first page of the main menu and the last item on the menu is currently selected
+    mainMenuPage = 1;
+  }
+  else
+  {
+    SELECTED_MENU_ITEM = ((SELECTED_MENU_ITEM + 1) < currentMenuMax) ? SELECTED_MENU_ITEM + 1 : SELECTED_MENU_ITEM;
+  }
 }
 
 void AccessCtlDisplay::scrollUp(void)
 {
-  SELECTED_MENU_ITEM = ((SELECTED_MENU_ITEM - 1) >= 0) ? SELECTED_MENU_ITEM - 1 : SELECTED_MENU_ITEM;
+  if ((currentScreen == MENU_SCREEN) && (mainMenuPage == 1) && (SELECTED_MENU_ITEM == 0))
+  {
+    // We're in the main menu screen, on the second page of the main menu and the first item on the menu is currently selected
+    mainMenuPage = 0;
+  }
+  else
+  {
+    SELECTED_MENU_ITEM = ((SELECTED_MENU_ITEM - 1) >= 0) ? SELECTED_MENU_ITEM - 1 : SELECTED_MENU_ITEM;
+  }
 }
 
 void AccessCtlDisplay::openMainMenu(void)
 {
+  mainMenuPage = 0;
   currentScreen = MENU_SCREEN;
   currentMenuMax = MAIN_MENU_MAX;
 }
@@ -240,6 +279,7 @@ void AccessCtlDisplay::openMainMenu(void)
 void AccessCtlDisplay::openPassScreen(void)
 {
   currentScreen = PASS_SCREEN;
+  currentPinScreen = PIN_SCREEN;
 }
 
 void AccessCtlDisplay::drawStatusScreen(void)
@@ -289,6 +329,22 @@ void AccessCtlDisplay::drawStatusScreen(void)
       display_text[0] = "ACCESS GRANTED!";
       display_text[1] = "";
       break;
+    case CHANGE_PIN_SUCCESS_SCREEN:
+      if ((get_timing_millis() - info_screen_timing) > 1000)
+      {
+        setCurrentScreen(MENU_SCREEN);
+      }
+      display_text[0] = "PIN saved!";
+      display_text[1] = "";
+      break;
+    case CHANGE_PIN_ERROR_SCREEN:
+      if ((get_timing_millis() - info_screen_timing) > 1000)
+      {
+        setCurrentScreen(MENU_SCREEN);
+      }
+      display_text[0] = "PINs don't";
+      display_text[1] = "match!";
+      break;
     default:
       break;
   }
@@ -331,7 +387,23 @@ PinChars_t AccessCtlDisplay::getNumCharsInput(void)
 
 void AccessCtlDisplay::drawPassScreen(void)
 {
-  char *title = "Enter PIN";
+  char *title;
+  switch (currentPinScreen)
+  {
+    case PIN_SCREEN:
+      title = "Enter PIN";
+      break;
+    case CURRENT_PIN_SCREEN:
+      title = "Current PIN:";
+      break;
+    case CHANGE_PIN_1:
+      title = "New PIN";
+      break;
+    case CHANGE_PIN_2:
+      title = "Confirm PIN";
+      break;
+  }
+  
   char pin_chars[8] = {0};
 
   uint8_t i, h;
@@ -370,30 +442,67 @@ void AccessCtlDisplay::drawPassScreen(void)
   u8g->drawStr(d, 0, title);
 }
 
+PinScreens_t AccessCtlDisplay::getCurrentPinScreen(void)
+{
+  return currentPinScreen;
+}
+
+void AccessCtlDisplay::setCurrentPinScreen(PinScreens_t pinScreen)
+{
+  currentPinScreen = pinScreen;
+}
+
 void AccessCtlDisplay::selectItem(void)
 {
   switch (currentScreen)
   {
     case MENU_SCREEN:
-      switch(SELECTED_MENU_ITEM)
+    {
+      if (mainMenuPage == 0)
       {
+        switch(SELECTED_MENU_ITEM)
+        {
+          case 0:
+            currentScreen = DEFAULT_SCREEN;
+            currentMenuMax = DEFAULT_MAX;
+            break;
+          case 1:
+            currentScreen = FINGERPRINT_DB_SCREEN;
+            currentMenuMax = FINGERPRINT_DB_MENU_MAX;
+            break;
+          case 2:
+            currentScreen = DOOR_SCREEN;
+            currentMenuMax = DOOR_MENU_MAX;
+          default:
+            break;
+        }
+      }
+      else if (mainMenuPage == 1)
+      {
+        switch(SELECTED_MENU_ITEM)
+        {
         case 0:
-          currentScreen = DEFAULT_SCREEN;
-          currentMenuMax = DEFAULT_MAX;
-          break;
-        case 1:
-          currentScreen = FINGERPRINT_DB_SCREEN;
-          currentMenuMax = FINGERPRINT_DB_MENU_MAX;
-          break;
-        case 2:
-          currentScreen = DOOR_SCREEN;
-          currentMenuMax = DOOR_MENU_MAX;
-        default:
-          break;
+            currentScreen = FINGERPRINT_DB_SCREEN;
+            currentMenuMax = FINGERPRINT_DB_MENU_MAX;
+            break;
+          case 1:
+            currentScreen = DOOR_SCREEN;
+            currentMenuMax = DOOR_MENU_MAX;
+            break;
+          case 2:
+            clearScreen();
+            currentScreen = PASS_SCREEN;
+            currentPinScreen = CURRENT_PIN_SCREEN;
+            currentMenuMax = DEFAULT_MAX;
+          default:
+            break;
+        }
       }
       SELECTED_MENU_ITEM = 0;
       break;
+    }
     case FINGERPRINT_DB_SCREEN:
+    {
       switch(SELECTED_MENU_ITEM)
       {
         case 0:
@@ -413,7 +522,9 @@ void AccessCtlDisplay::selectItem(void)
       }
       SELECTED_MENU_ITEM = 0;
       break;
+    }
     case DOOR_SCREEN:
+    {
       switch(SELECTED_MENU_ITEM)
       {
         case 0:
@@ -432,7 +543,9 @@ void AccessCtlDisplay::selectItem(void)
       }
       SELECTED_MENU_ITEM = 0;
       break;
+    }
     case DOOR_OPEN_SCREEN:
+    {
       switch(SELECTED_MENU_ITEM)
       {
         case 0:
@@ -448,7 +561,9 @@ void AccessCtlDisplay::selectItem(void)
       }
       SELECTED_MENU_ITEM = 0;
       break;
+    }
     case DOOR_CLOSE_SCREEN:
+    {
       switch(SELECTED_MENU_ITEM)
       {
         case 0:
@@ -464,6 +579,7 @@ void AccessCtlDisplay::selectItem(void)
       }
       SELECTED_MENU_ITEM = 0;
       break;
+    }
     default:
       break;
   }

@@ -1,6 +1,8 @@
 
 #include "access_ctl_keypad_driver.h"
 
+volatile uint16_t timerCnt = 0;
+
 char key[NUM_ROWS][NUM_COLS] = {
   {'1', '2', '3', 'A'},
   {'4', '5', '6', 'B'},
@@ -21,6 +23,7 @@ volatile unsigned long pinChangeMillis = 0;
 void (*keypad_event_callback)(char, KeyEdge_t);
 
 void keypad_event_listener(void);
+void timer1_init(void);
 
 
 void keypad_setup(void)
@@ -38,6 +41,11 @@ void keypad_setup(void)
   // pull all columns low
   DDRD |= (1 << DDD4) | (1 << DDD5) | (1 << DDD6) | (1 << DDD7);
   PORTD &= ~(1 << PORTD4) & ~(1 << PORTD5) & ~(1 << PORTD6) & ~(1 << PORTD7);
+}
+
+void timer1_init(void)
+{
+  TCCR1B = _BV(CS10);
 }
 
 void keypad_event_listener(void)
@@ -80,60 +88,21 @@ ISR(PCINT1_vect)
         // pull cols high *verified*
         PORTD |= (1 << PORTD4) | (1 << PORTD5) | (1 << PORTD6) | (1 << PORTD7);
 
-        // delay for change to take effect
-        asm volatile(
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          ::);
+        while ((PIND >> 4) != 0x0F);
     
         // loop through columns 
         for (int col = 0; col < NUM_COLS; col++)
         {
+          timerCnt = 0;
+          TCNT1 = 0;
           // set a single column low at a time *verified*
           PORTD &= ~(1 << (col+4));
     
           // delay for external change to take effect
-          asm volatile(
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          "nop" "\n\t"
-          ::);
-    
+          // For some reason it takes different times for the change to take effect
+          // Imperically: 24clks for row 1, 34 clks for row 2, 44 clks for row 3, 54 clks for row 4
+          // And some sporadic bursts of up to 65clks (as per observations
+          while (TCNT1 < 80); // delay for 5us
           
           if (bit_is_clear(PINC, currentRow))
           {

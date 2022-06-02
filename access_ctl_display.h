@@ -17,7 +17,10 @@ typedef enum SCREENS : int8_t {
   RM_FINGERPRINT_SCREEN,
   DOOR_SCREEN,
   DOOR_OPEN_SCREEN,
-  DOOR_CLOSE_SCREEN
+  DOOR_CLOSE_SCREEN,
+  CHANGE_PIN_SCREEN,
+  CHANGE_PIN_ERROR_SCREEN,
+  CHANGE_PIN_SUCCESS_SCREEN
 } Screen_t;
 
 typedef enum MENU_MAX : int8_t {
@@ -28,6 +31,13 @@ typedef enum MENU_MAX : int8_t {
   DOOR_OPEN_MAX = 2,
   DOOR_CLOSE_MAX = 2
 }MenuMax_t;
+
+typedef enum PIN_SCREENS: int8_t {
+  PIN_SCREEN,
+  CURRENT_PIN_SCREEN,
+  CHANGE_PIN_1,
+  CHANGE_PIN_2
+}PinScreens_t;
 
 typedef enum PIN_CHARS: int8_t {
   ZERO_CHARS = 0,
@@ -60,7 +70,10 @@ class AccessCtlDisplay
     Screen_t currentScreen = DEFAULT_SCREEN;
     MenuMax_t currentMenuMax = DEFAULT_MAX;
     PinChars_t numPinCharsInput = ZERO_CHARS;
+    PinScreens_t currentPinScreen = PIN_SCREEN;
     AddFingerSteps_t addFingerCurrentStep = STEPS_NONE;
+
+    void clearScreen(void);
     
     void drawSelectionScreen(void);
     void drawPassScreen(void);
@@ -91,6 +104,8 @@ class AccessCtlDisplay
     Screen_t getCurrentScreen(void);
     void setCurrentScreen(Screen_t screen, MenuMax_t max = DEFAULT_MAX);
     PinChars_t getNumCharsInput(void);
+    PinScreens_t getCurrentPinScreen(void);
+    void setCurrentPinScreen(PinScreens_t pinScreen);
     void addPinCharInput(void);
     void resetPinChars(void);
 
