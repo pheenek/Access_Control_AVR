@@ -1,3 +1,38 @@
+/**
+ * @file 		access_ctl.ino 
+ * 
+ * @author 		Stephen Kairu (kairu@pheenek.com) 
+ * 
+ * @brief	    This file contains the main system logic, including the program entry-point
+ *              and the main system loop in which each peripheral's loop is executed.
+ * 
+ * @version 	0.1 
+ * 
+ * @date 		2023-09-23
+ * 
+ * ***************************************************************************
+ * @copyright Copyright (c) 2023, Stephen Kairu
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+ * associated documentation files (the “Software”), to deal in the Software without restriction,
+ * including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do
+ * so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all copies or substantial
+ * portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS
+ * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS
+ * OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * ***************************************************************************
+ * 
+ */
+#include "global_inc.h"
+#include "Arduino.h"
 
 #include "access_ctl_display.h"
 #include "access_ctl_keypad.h"
@@ -69,7 +104,7 @@ void setup()
   fingerprintSensor.getTemplateCount();
   FINGERPRINT_COUNT = fingerprintSensor.templateCount;
 
-  #ifdef DEBUG_FINGERPRINT
+  #ifdef DEBUG_FINGERPRINTuint8_t
     Serial.print("Fingerprint templates: ");
     Serial.println(FINGERPRINT_COUNT);
   #endif
@@ -109,22 +144,36 @@ void loop()
   exitLoop();
 }
 
+/**
+ * @brief	 Enables the LED on the fingerprint sensor
+ */
 void fingeprintLEDOn(void)
 {
   fingerprintSensor.LEDcontrol(FINGERPRINT_LED_BREATHING, 100, FINGERPRINT_LED_BLUE);
 }
 
+/**
+ * @brief	 Disables the LED on the fingerprint sensor
+ */
 void fingeprintLEDOff(void)
 {
   
 }
 
+/**
+ * @brief	 Sets up the fingerprint sensor touch pin
+ *          The pin is active low, and a low-level indicates that a finger has been placed over the sensor
+ */
 void setupFingerprintTouch(void)
 {
   // set touch pin as an input
   DDRB &= ~(1 << DDB2);
 }
 
+/**
+ * @brief	 Executes the fingerprint touch sense loop
+ *          If the presence of a finger is detected using the touch pin, enables reading of the fingerprint
+ */
 void fingerprintTouchLoop(void)
 {  
   if (bit_is_clear(PINB, PINB2))
@@ -160,6 +209,10 @@ void fingerprintTouchLoop(void)
   }
 }
 
+/**
+ * @brief	 Executes the exit button loop
+ *          If the button is activated (active-low) a buzzer-alert is issued and the solenoid lock is energized
+ */
 void exitLoop(void)
 {
   if (exitTrigger.isActivated())
@@ -183,6 +236,11 @@ void exitLoop(void)
   }
 }
 
+/**
+ * @brief	 Executes the solenoid lock loop
+ *          Times out the solenoid lock and de-energizes the lock when the timeout has elapsed
+ *          Ensures that the lock is de-energized (locked) unless a fingerprint verification is done
+ */
 void lockLoop(void)
 {
   if (access_lock.isOpened() && contact_sensor.doorClosed())
@@ -195,6 +253,9 @@ void lockLoop(void)
   
 }
 
+/**
+ * @brief	 Executes the menu access loop (main menu access through security code)
+ */
 void validateMenuAccessLoop(void)
 {
   if (access_keypad.getCurrentKeypadState() == DEFAULT_STATE)
@@ -204,6 +265,12 @@ void validateMenuAccessLoop(void)
   }
 }
 
+/**
+ * @brief	 Executes the fingerprint loop
+ *          Validates the fingerprint (during positive-presence) and performs verification.
+ *          Issues buzzer alert and displays a status message depending on the results of the verification (positive/negative)
+ *          (Access granted/denied)
+ */
 void validateFingerprintLoop(void)
 {
   if (validateFinger)
@@ -241,6 +308,9 @@ void validateFingerprintLoop(void)
   
 }
 
+/**
+ * @brief	 Executes the fingerprint registration loop
+ */
 void enrollFingerprintLoop(void)
 {
   if (enrollFinger)
@@ -251,6 +321,13 @@ void enrollFingerprintLoop(void)
   }
 }
 
+/**
+ * @brief	Reads the fingerprint on the sensor, and performs verification
+ *          Executed within the fingerprint verification loop
+ * 
+ * @return true -> Verification success. Record found
+ * @return false -> Verfication failed. Record not found, or error reading fingerprint
+ */
 bool getFingerprint(void)
 {
   #ifdef DEBUG_FINGERPRINT
@@ -300,6 +377,14 @@ bool getFingerprint(void)
   return true;
 }
 
+/**
+ * @brief	 Keypad callback executed when a keypad event is detected
+ *          Called from ISR, and should therefore not contain any blocking sections.
+ *          Handles most of the state-machine logic (Display screens, keypad states)
+ * 
+ * @param pressed 
+ * @param edge 
+ */
 void keypadEventCallback(char pressed, KeyEdge_t edge)
 {
   #ifdef DEBUG_KEYPAD
@@ -527,6 +612,11 @@ void keypadEventCallback(char pressed, KeyEdge_t edge)
   }
 }
 
+/**
+ * @brief	 Fingerprint touch callback executed when a fingerprint is detected on the sensor
+ * 
+ * @param state 
+ */
 void fingerprintSensorTouchCallback(FingerTouchState_t state)
 {
   #ifdef DEBUG_FINGERPRINT
@@ -567,6 +657,9 @@ void fingerprintSensorTouchCallback(FingerTouchState_t state)
   
 }
 
+/**
+ * @brief	 Executes the fingerprint registration logic
+ */
 void enrollFingerprint(void)
 {
   // Display "place finger text" (enrolling ID = FINGERPRINT_COUNT + 1)
@@ -591,6 +684,10 @@ void enrollFingerprint(void)
   }
 }
 
+/**
+ * @brief	 Executes the fingerprint capture logic during fingerprint registration
+ *          Performs the initial capture
+ */
 void captureFingerprint(void)
 {
   // Wait for the finger to settle on the sensor
@@ -629,6 +726,10 @@ void captureFingerprint(void)
   
 }
 
+/**
+ * @brief	 Executes the fingerprint recapture logic during fingerprint registration
+ *          Performs the second capture, creates the fingerprint model and saves the fingerprint into memory
+ */
 void recaptureFingerprint(void)
 {
   // Wait for the finger to settle on the sensor
@@ -691,6 +792,12 @@ void recaptureFingerprint(void)
   
 }
 
+/**
+ * @brief	 Contact sensor callback executed when a change of state of the magnetic contact switch sensor
+ *          is detected (active-low). A low-level indicates that the door is locked
+ * 
+ * @param event 
+ */
 void contactSensorCallback(ContactEvent_t event)
 {
     if (event == DOOR_CLOSED)
@@ -708,6 +815,11 @@ void contactSensorCallback(ContactEvent_t event)
     }
 }
 
+/**
+ * @brief	 Exit button callback executed when the exit button is pressed.
+ *          Used to open the door without requiring fingerprint verification.
+ *          The exit button is installed on the inside of the access-controlled space
+ */
 void exitTriggerCallback(void)
 {
   access_lock.openLock();

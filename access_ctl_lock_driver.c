@@ -1,14 +1,13 @@
 /**
- * @file 		timing_driver.c 
+ * @file 		access_ctl_lock_driver.c 
  * 
  * @author 		Stephen Kairu (kairu@pheenek.com) 
  * 
- * @brief	    This file contains the definitions for a low-level timing driver
- *            for generating accurate, non-blocking ms timing clock ticks
+ * @brief	    This file contains implementations for the low-level solenoid lock driver
  * 
  * @version 	0.1 
  * 
- * @date 		2023-09-16
+ * @date 		2023-09-23
  * 
  * ***************************************************************************
  * @copyright Copyright (c) 2023, Stephen Kairu
@@ -31,42 +30,38 @@
  * ***************************************************************************
  * 
  */
-#include "timing_driver.h"
-
-volatile unsigned long timing_millis = 0; /*< Variable to keep track of the number of elapsed milliseconds */
+#include "access_ctl_lock_driver.h"
 
 /**
- * @brief	 Function to initialize and setup Timer 2
- *         Prescaler 64, with the overflow interrupt enabled (overflows in approximately 1ms)
+ * @brief	 Initializes the solenoid lock hardware
  * 
  * @param none
  * @return none
  */
-void timer_init(void)
+void lock_init(void)
 {
-  // enable timer2 (prescaler 64)
-  TCCR2B |= (1 << CS22);
-  // enable timer2 overflow interrupt
-  TIMSK2 |= (1 << TOIE2);
+  // set the lock pin as an output
+  DDRB |= (1 << DDB5);
 }
 
 /**
- * @brief	Returns the number of elapsed milliseconds
+ * @brief	 Energizes the solenoid lock, unlatching the door
  * 
  * @param none
- * @return unsigned long -> elapsed time in milliseconds
+ * @return none
  */
-unsigned long get_timing_millis(void)
+void open_lock(void)
 {
-	return timing_millis;
+  PORTB |= (1 << PORTB5);
 }
 
 /**
- * @brief	Timer overflow ISR
- *        Executed when Timer 2 overflows (approximately every 1ms) 
+ * @brief	 De-energizes the solenoid lock, latching the door
+ * 
+ * @param none
+ * @return none
  */
-ISR(TIMER2_OVF_vect)
+void close_lock(void)
 {
-  // increment on every overflow (1 ms elapsed)
-  timing_millis+= 1;
+  PORTB &= ~(1 << PORTB5);
 }
